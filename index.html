@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>⚔ QUEST BOARD · 任务面板</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚔️</text></svg>">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div id="storage-warning" class="storage-warning" hidden>⚠️ 浏览器存储不可用，本次数据将不会保存。</div>
+
+<header class="topbar">
+  <h1 class="logo">⚔ QUEST BOARD<span class="logo-sub">任务面板</span></h1>
+  <div class="header-stats">
+    <span class="stat"><b id="stat-completed">0</b>已完成</span>
+    <span class="stat"><b id="stat-active">0</b>进行中</span>
+  </div>
+</header>
+
+<main class="container">
+  <!-- 工具行 -->
+  <section class="toolbar">
+    <div class="toolbar-left">
+      <button id="btn-achievements" class="btn btn-lg" title="查看成就">🎖 成就 <span id="badge-count">0 / 8</span></button>
+      <button id="btn-new" class="btn btn-primary btn-lg">＋ 新建任务</button>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab is-active" data-tab="active" role="tab">进行中</button>
+      <button class="tab" data-tab="archive" role="tab">已归档</button>
+    </div>
+  </section>
+
+  <!-- 任务列表 -->
+  <section id="body" class="body" aria-live="polite"></section>
+</main>
+
+<!-- 新建 / 编辑任务弹层 -->
+<div id="modal" class="modal-overlay" hidden>
+  <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <h3 id="modal-title" class="modal-title">新建任务</h3>
+    <form id="task-form" novalidate autocomplete="off">
+      <label class="field">
+        <span class="field-label">任务标题</span>
+        <input id="f-title" type="text" maxlength="200" placeholder="例如：买西瓜">
+      </label>
+      <div class="field">
+        <span class="field-label">任务类型</span>
+        <div id="f-type" class="type-picker">
+          <span class="type-opt type-main is-selected"><span class="dot"></span>主线任务</span>
+          <span class="type-opt type-side"><span class="dot"></span>支线任务</span>
+        </div>
+      </div>
+      <label class="field">
+        <span class="field-label">目的地（可选）</span>
+        <input id="f-destination" type="text" maxlength="60" placeholder="例如：超市、图书馆、上海">
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span class="field-label">目标进度</span>
+          <input id="f-target" type="number" min="1" max="9999" value="1">
+        </label>
+        <label class="field" id="f-start-wrap">
+          <span class="field-label">起始进度</span>
+          <input id="f-start" type="number" min="0" max="9999" value="0">
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" id="f-cancel" class="btn">取消</button>
+        <button type="submit" class="btn btn-primary">保存</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 二次确认弹层 -->
+<div id="confirm" class="modal-overlay" hidden>
+  <div class="modal-panel modal-panel-sm" role="alertdialog" aria-modal="true">
+    <p id="confirm-text" class="confirm-text"></p>
+    <div class="modal-actions">
+      <button id="confirm-no" class="btn">取消</button>
+      <button id="confirm-yes" class="btn btn-danger">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 成就详情弹层 -->
+<div id="achievements-overlay" class="modal-overlay" hidden>
+  <div class="modal-panel achievements-panel" role="dialog" aria-modal="true">
+    <h3 class="modal-title">🎖 成就徽章<span class="ach-count" id="ach-count">0 / 8</span></h3>
+    <div class="ach-list" id="ach-list"></div>
+    <div class="modal-actions">
+      <button type="button" id="ach-close" class="btn btn-primary">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script src="js/store.js"></script>
+<script src="js/achievements.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

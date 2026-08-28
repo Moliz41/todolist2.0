@@ -1,0 +1,12 @@
+# 测试脚本与截图（存于系统临时目录，不应进入仓库）
+*-test.cjs
+screenshot.cjs
+shot-*.png
+
+# Claude Code 本地权限设置
+.claude/settings.local.json
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.log
