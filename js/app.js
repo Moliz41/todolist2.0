@@ -41,6 +41,8 @@ const App = (() => {
     el.fStartWrap = document.getElementById('f-start-wrap');
     el.fStart = document.getElementById('f-start');
     el.fDestination = document.getElementById('f-destination');
+    el.fStartTime = document.getElementById('f-start-time');
+    el.fEndTime = document.getElementById('f-end-time');
     el.typePicker = document.getElementById('f-type');
     el.fCancel = document.getElementById('f-cancel');
 
@@ -53,6 +55,27 @@ const App = (() => {
   // ---------- 工具 ----------
   function findTask(id) { return state.tasks.find(t => t.id === id); }
   function pad(n) { return String(n).padStart(2, '0'); }
+  // 时间格式化：datetime-local 字符串 → 本地时间显示
+  function fmtMDHM(val) { const d = new Date(val); if (isNaN(d.getTime())) return null; return `${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+  function fmtHM(val) { const d = new Date(val); if (isNaN(d.getTime())) return null; return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+  // 任务卡片时间行：两个都填→同天压缩；只填一个→只显示对应部分；都没填→空串
+  function timeRowHTML(t) {
+    const ds = t.startTime ? new Date(t.startTime) : null;
+    const de = t.endTime ? new Date(t.endTime) : null;
+    const sOk = ds && !isNaN(ds.getTime());
+    const eOk = de && !isNaN(de.getTime());
+    if (!sOk && !eOk) return '';
+    let txt;
+    if (sOk && eOk) {
+      const sameDay = ds.getFullYear() === de.getFullYear() && ds.getMonth() === de.getMonth() && ds.getDate() === de.getDate();
+      txt = sameDay ? `${fmtMDHM(t.startTime)} → ${fmtHM(t.endTime)}` : `${fmtMDHM(t.startTime)} → ${fmtMDHM(t.endTime)}`;
+    } else if (sOk) {
+      txt = `${fmtMDHM(t.startTime)} 起`;
+    } else {
+      txt = `截止 ${fmtMDHM(t.endTime)}`;
+    }
+    return `<div class="task-time">🕒 ${txt}</div>`;
+  }
   function nextOrder(type) {
     return state.tasks
       .filter(t => t.type === type && t.status === 'active')
@@ -299,6 +322,7 @@ const App = (() => {
         <span class="task-progress-num">${t.progress} / ${t.target}</span>
       </div>
       <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+      ${timeRowHTML(t)}
       ${custom}
       <div class="task-actions">
         <div class="quick-row">
@@ -330,6 +354,7 @@ const App = (() => {
         <span class="task-done">✔ 已完成</span>
       </div>
       <div class="progress-track"><div class="progress-fill full" style="width:100%"></div></div>
+      ${timeRowHTML(t)}
       <div class="task-actions">
         <div class="quick-row">
           <button class="btn btn-sm" data-action="restore" data-id="${t.id}" title="恢复为进行中，保留进度">恢复</button>
@@ -352,6 +377,9 @@ const App = (() => {
     el.fStartWrap.hidden = !!t;              // 编辑时不显示起始进度
     el.fStart.value = 0;
     el.fDestination.value = t ? (t.destination || '') : '';
+    el.fStartTime.value = t ? (t.startTime || '') : '';
+    el.fEndTime.value = t ? (t.endTime || '') : '';
+    el.fEndTime.classList.remove('input-error');
     el.typePicker.querySelectorAll('.type-opt').forEach(o =>
       o.classList.toggle('is-selected', o.classList.contains('type-' + formType)));
     showOverlay(el.modal);
@@ -374,6 +402,12 @@ const App = (() => {
     }
     target = Math.floor(target);
     const destination = el.fDestination.value.trim();
+    const startTime = el.fStartTime.value || null;
+    const endTime = el.fEndTime.value || null;
+    // 软提示：结束早于开始时弹 toast，但不阻止保存
+    if (startTime && endTime && new Date(endTime) < new Date(startTime)) {
+      showToast('⚠️ 结束时间早于开始时间', 'badge');
+    }
 
     if (editingId) {
       const t = findTask(editingId);
@@ -382,6 +416,8 @@ const App = (() => {
         t.type = formType;
         t.target = target;
         t.destination = destination;
+        t.startTime = startTime;
+        t.endTime = endTime;
         t.updatedAt = Date.now();
         if (t.progress > target) t.progress = target;  // 目标调小时钳制进度
       }
@@ -395,6 +431,8 @@ const App = (() => {
         title,
         type: formType,
         destination,
+        startTime,
+        endTime,
         progress: start,
         target,
         status: completed ? 'completed' : 'active',
@@ -522,6 +560,13 @@ const App = (() => {
     // 输入出错后重新输入时清除错误态
     [el.fTitle, el.fTarget, el.fStart].forEach(inp =>
       inp.addEventListener('input', () => inp.classList.remove('input-error')));
+    // 时间软校验：结束早于开始时给结束框红框，不阻止保存
+    function syncTimeError() {
+      const s = el.fStartTime.value, e = el.fEndTime.value;
+      el.fEndTime.classList.toggle('input-error', !!(s && e && new Date(e) < new Date(s)));
+    }
+    el.fStartTime.addEventListener('input', syncTimeError);
+    el.fEndTime.addEventListener('input', syncTimeError);
   }
 
   // ---------- 入口 ----------

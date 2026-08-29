@@ -54,6 +54,13 @@ function toNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+// 时间兜底：datetime-local 字符串（如 2026-08-28T14:00）；空或非法则返回 null
+function validTimeStr(v) {
+  if (typeof v !== 'string' || !v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : v;
+}
+
 // 单任务兜底清洗：补默认字段、清非法值
 function normalizeTask(t) {
   if (!t || typeof t !== 'object') return null;
@@ -61,6 +68,9 @@ function normalizeTask(t) {
   const progress = Math.min(Math.max(0, Math.floor(toNum(t.progress) ?? 0)), target);
   // 只依据 status 判定完成：恢复后「进度满但未完成」是合法状态（如 8/8 恢复）
   const completed = t.status === 'completed';
+  // 时间为 datetime-local 字符串；空或非法则置 null（不填即不显示）
+  const startTime = validTimeStr(t.startTime);
+  const endTime = validTimeStr(t.endTime);
   return {
     id: String(t.id || genId()),
     title: String(t.title || '').slice(0, 200),
@@ -69,6 +79,8 @@ function normalizeTask(t) {
     progress,
     target,
     status: completed ? 'completed' : 'active',
+    startTime,
+    endTime,
     order: Math.floor(toNum(t.order) ?? 0),
     createdAt: toNum(t.createdAt) ?? Date.now(),
     updatedAt: toNum(t.updatedAt) ?? Date.now(),
