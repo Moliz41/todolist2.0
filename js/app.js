@@ -43,6 +43,9 @@ const App = (() => {
     el.fDestination = document.getElementById('f-destination');
     el.fStartTime = document.getElementById('f-start-time');
     el.fEndTime = document.getElementById('f-end-time');
+    el.fImportant = document.getElementById('f-important');
+    el.fAlertWrap = document.getElementById('f-alert-wrap');
+    el.fAlertMinutes = document.getElementById('f-alert-minutes');
     el.typePicker = document.getElementById('f-type');
     el.fCancel = document.getElementById('f-cancel');
 
@@ -80,6 +83,28 @@ const App = (() => {
     return state.tasks
       .filter(t => t.type === type && t.status === 'active')
       .reduce((m, t) => Math.max(m, t.order), 0) + 1;
+  }
+
+  // 紧急判定：important + endTime + active + now ≥ endTime − alertMinutes×60000
+  function isUrgent(t) {
+    if (!t || !t.important || !t.endTime || t.status !== 'active') return false;
+    const endMs = new Date(t.endTime).getTime();
+    if (isNaN(endMs)) return false;
+    const minutes = Number.isFinite(t.alertMinutes) && t.alertMinutes > 0 ? t.alertMinutes : 30;
+    return Date.now() >= endMs - minutes * 60000;
+  }
+
+  // 同组内排序：紧急任务按 endTime 升序（最急在前），普通按 order 升序
+  function sortTasksByType(tasks) {
+    return tasks.slice().sort((a, b) => {
+      const ua = isUrgent(a) ? 1 : 0;
+      const ub = isUrgent(b) ? 1 : 0;
+      if (ua !== ub) return ub - ua;             // 紧急排前
+      if (ua === 1 && ub === 1) {
+        return new Date(a.endTime) - new Date(b.endTime);
+      }
+      return a.order - b.order;                // 普通按用户 order
+    });
   }
 
   // ---------- 成就 ----------
@@ -140,16 +165,6 @@ const App = (() => {
     if (!other) return;
     const tmp = t.order; t.order = other.order; other.order = tmp;
     Store.saveState(state);
-    render();
-  }
-
-  function restoreTask(id) {
-    const t = findTask(id); if (!t) return;
-    t.status = 'active';
-    t.completedAt = null;
-    t.updatedAt = Date.now();
-    Store.saveState(state);
-    checkAchievements();
     render();
   }
 
@@ -268,7 +283,7 @@ const App = (() => {
       return;
     }
     el.body.innerHTML = TASK_TYPE_KEYS.map(type => {
-      const items = active.filter(t => t.type === type).sort((a, b) => a.order - b.order);
+      const items = sortTasksByType(active.filter(t => t.type === type));
       return `
         <section class="group">
           <header class="group-head type-${type}">
@@ -306,6 +321,7 @@ const App = (() => {
   function taskCardHTML(t) {
     const type = TASK_TYPES[t.type];
     const pct = Math.min(100, Math.round((t.progress / t.target) * 100));
+    const urgent = isUrgent(t);
     const custom = customOpenId === t.id ? `
       <div class="custom-row">
         <input type="number" class="custom-input" data-id="${t.id}" min="0" max="${t.target}" value="${t.progress}" placeholder="0 ~ ${t.target}">
@@ -313,10 +329,11 @@ const App = (() => {
         <button class="btn btn-sm" data-action="custom-cancel">取消</button>
       </div>` : '';
     return `
-    <article class="task-card type-${t.type}" data-card-id="${t.id}">
+    <article class="task-card type-${t.type}${urgent ? ' urgent' : ''}" data-card-id="${t.id}">
       <div class="task-card-head">
         <span class="type-icon">${type.icon}</span>
         <span class="type-tag">${type.label}</span>
+        ${t.important ? '<span class="star-mark" title="重要任务">⭐</span>' : ''}
         <span class="task-title">${Store.escapeHtml(t.title)}</span>
         ${t.destination ? `<span class="task-destination">→ ${Store.escapeHtml(t.destination)}</span>` : ''}
         <span class="task-progress-num">${t.progress} / ${t.target}</span>
@@ -332,8 +349,8 @@ const App = (() => {
         </div>
         <div class="meta-row">
           <button class="icon-btn" data-action="edit" data-id="${t.id}" title="编辑">✎</button>
-          <button class="icon-btn" data-action="move-up" data-id="${t.id}" title="上移">▲</button>
-          <button class="icon-btn" data-action="move-down" data-id="${t.id}" title="下移">▼</button>
+          ${urgent ? '' : `<button class="icon-btn" data-action="move-up" data-id="${t.id}" title="上移">▲</button>`}
+          ${urgent ? '' : `<button class="icon-btn" data-action="move-down" data-id="${t.id}" title="下移">▼</button>`}
           <button class="icon-btn danger" data-action="delete" data-id="${t.id}" title="删除">✕</button>
         </div>
       </div>
@@ -357,7 +374,6 @@ const App = (() => {
       ${timeRowHTML(t)}
       <div class="task-actions">
         <div class="quick-row">
-          <button class="btn btn-sm" data-action="restore" data-id="${t.id}" title="恢复为进行中，保留进度">恢复</button>
           <button class="btn btn-sm" data-action="reset" data-id="${t.id}" title="进度清零并恢复">重置进度</button>
           <button class="btn btn-sm btn-danger" data-action="delete" data-id="${t.id}" title="删除任务">删除</button>
         </div>
@@ -380,6 +396,10 @@ const App = (() => {
     el.fStartTime.value = t ? (t.startTime || '') : '';
     el.fEndTime.value = t ? (t.endTime || '') : '';
     el.fEndTime.classList.remove('input-error');
+    el.fImportant.checked = !!(t && t.important);
+    el.fAlertMinutes.value = t && t.alertMinutes != null ? t.alertMinutes : 30;
+    el.fAlertMinutes.classList.remove('input-error');
+    el.fAlertWrap.hidden = !el.fImportant.checked;
     el.typePicker.querySelectorAll('.type-opt').forEach(o =>
       o.classList.toggle('is-selected', o.classList.contains('type-' + formType)));
     showOverlay(el.modal);
@@ -388,6 +408,12 @@ const App = (() => {
 
   function handleFormSubmit(e) {
     e.preventDefault();
+    // 清残留 error 态
+    el.fTitle.classList.remove('input-error');
+    el.fTarget.classList.remove('input-error');
+    el.fEndTime.classList.remove('input-error');
+    el.fAlertMinutes.classList.remove('input-error');
+
     const title = el.fTitle.value.trim();
     if (!title) {
       el.fTitle.classList.add('input-error');
@@ -404,6 +430,33 @@ const App = (() => {
     const destination = el.fDestination.value.trim();
     const startTime = el.fStartTime.value || null;
     const endTime = el.fEndTime.value || null;
+
+    // 重要任务校验：必须设置结束时间，且不能早于现在
+    const important = el.fImportant.checked;
+    let alertMinutes = null;
+    if (important) {
+      if (!endTime) {
+        showToast('⚠️ 重要任务需设置结束时间', 'badge');
+        el.fEndTime.classList.add('input-error');
+        el.fEndTime.focus();
+        return;
+      }
+      const am = parseInt(el.fAlertMinutes.value, 10);
+      if (!Number.isFinite(am) || am < 1) {
+        showToast('⚠️ 提前分钟数需 ≥ 1', 'badge');
+        el.fAlertMinutes.classList.add('input-error');
+        el.fAlertMinutes.focus();
+        return;
+      }
+      if (new Date(endTime).getTime() <= Date.now()) {
+        showToast('⚠️ 重要任务的结束时间需晚于现在', 'badge');
+        el.fEndTime.classList.add('input-error');
+        el.fEndTime.focus();
+        return;
+      }
+      alertMinutes = am;
+    }
+
     // 软提示：结束早于开始时弹 toast，但不阻止保存
     if (startTime && endTime && new Date(endTime) < new Date(startTime)) {
       showToast('⚠️ 结束时间早于开始时间', 'badge');
@@ -418,6 +471,8 @@ const App = (() => {
         t.destination = destination;
         t.startTime = startTime;
         t.endTime = endTime;
+        t.important = important;
+        t.alertMinutes = alertMinutes;
         t.updatedAt = Date.now();
         if (t.progress > target) t.progress = target;  // 目标调小时钳制进度
       }
@@ -433,6 +488,8 @@ const App = (() => {
         destination,
         startTime,
         endTime,
+        important,
+        alertMinutes,
         progress: start,
         target,
         status: completed ? 'completed' : 'active',
@@ -472,6 +529,10 @@ const App = (() => {
   function bindEvents() {
     el.btnNew.addEventListener('click', () => openForm(null));
     el.fCancel.addEventListener('click', () => hideOverlay(el.modal));
+    el.fImportant.addEventListener('change', () => {
+      el.fAlertWrap.hidden = !el.fImportant.checked;
+      if (el.fImportant.checked) el.fAlertMinutes.focus();
+    });
     el.form.addEventListener('submit', handleFormSubmit);
     el.modal.addEventListener('mousedown', (e) => { if (e.target === el.modal) hideOverlay(el.modal); });
     el.confirm.addEventListener('mousedown', (e) => { if (e.target === el.confirm) hideOverlay(el.confirm); });
@@ -532,7 +593,6 @@ const App = (() => {
         case 'move-up': moveTask(id, -1); break;
         case 'move-down': moveTask(id, 1); break;
         case 'delete': requestDelete(id); break;
-        case 'restore': restoreTask(id); break;
         case 'reset': resetTask(id); break;
         case 'clear-archive': clearArchive(); break;
       }
@@ -570,6 +630,21 @@ const App = (() => {
   }
 
   // ---------- 入口 ----------
+  // 跟踪每个 active 任务上一次的紧急状态，仅在状态翻转时 render
+  const urgentState = new Map();
+  function checkUrgent() {
+    let changed = false;
+    for (const t of state.tasks) {
+      if (t.status !== 'active') continue;
+      const now = isUrgent(t);
+      if (urgentState.get(t.id) !== now) {
+        urgentState.set(t.id, now);
+        changed = true;
+      }
+    }
+    if (changed) render();
+  }
+
   function init() {
     cacheDom();
     if (!Store.storageAvailable) {
@@ -579,6 +654,11 @@ const App = (() => {
     bindEvents();
     checkAchievements();
     render();
+    // 启动时建立基线，避免初次 render
+    for (const t of state.tasks) {
+      if (t.status === 'active') urgentState.set(t.id, isUrgent(t));
+    }
+    setInterval(checkUrgent, 30000);
   }
 
   init();

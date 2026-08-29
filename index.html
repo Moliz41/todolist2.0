@@ -67,6 +67,16 @@
           <input id="f-end-time" type="datetime-local">
         </label>
       </div>
+      <div class="field-row field-row-important">
+        <label class="field field-important">
+          <input id="f-important" type="checkbox">
+          <span class="field-label">是否重要任务</span>
+        </label>
+        <label class="field" id="f-alert-wrap" hidden>
+          <span class="field-label">提前多少分钟进入紧急</span>
+          <input id="f-alert-minutes" type="number" min="1" max="9999" value="30">
+        </label>
+      </div>
       <div class="field-row">
         <label class="field">
           <span class="field-label">目标进度</span>

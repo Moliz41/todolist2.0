@@ -14,7 +14,7 @@ const TASK_TYPES = {
 const TASK_TYPE_KEYS = ['main', 'side'];
 
 const STORAGE_KEY = 'questBoard.state.v1';
-const CURRENT_VERSION = 1;
+const CURRENT_VERSION = 2;
 
 // localStorage 是否可用（隐私模式等场景会抛异常）
 const storageAvailable = (() => {
@@ -45,6 +45,17 @@ const MIGRATIONS = {
     achievements: raw.achievements || {},
     stats: { totalCompleted: 0, createdCount: 0, ...(raw.stats || {}) },
   }),
+  // v1 → v2：新增「重要提醒」字段 important / alertMinutes，旧数据兜底为 false / null
+  2: (raw) => {
+    const tasks = (Array.isArray(raw.tasks) ? raw.tasks : []).map((t) => ({
+      important: false,
+      alertMinutes: null,
+      ...t,
+      important: !!t.important,
+      alertMinutes: toNum(t.alertMinutes),
+    }));
+    return { ...raw, version: 2, tasks };
+  },
 };
 
 // 数字兜底：null/undefined/空串视为无效，其余数字字符串也可转换
@@ -82,6 +93,8 @@ function normalizeTask(t) {
     startTime,
     endTime,
     order: Math.floor(toNum(t.order) ?? 0),
+    important: !!t.important,
+    alertMinutes: toNum(t.alertMinutes),
     createdAt: toNum(t.createdAt) ?? Date.now(),
     updatedAt: toNum(t.updatedAt) ?? Date.now(),
     completedAt: completed ? (toNum(t.completedAt) ?? Date.now()) : null,
