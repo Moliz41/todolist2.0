@@ -11,21 +11,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 没有开发服务器，也没有测试运行器。两种工作流：
 
 - **手动**：双击 `index.html`（以 `file://` 打开）。所有持久化使用 `localStorage`，在 `file://` 下 Chrome/Edge/Firefox 均可用。
-- **无头浏览器校验**：E2E 测试是临时的 `.cjs` 脚本（存放在系统临时目录，不在仓库内），通过 Chrome DevTools 协议（CDP）WebSocket 驱动 Edge。流程是启动 `msedge.exe --headless=new --remote-debugging-port=<端口>`，连接到页面的 `webSocketDebuggerUrl`，用 `Runtime.evaluate` 执行断言。测试套子形态参考已有的 `*-test.cjs`（端口探测 → `Page.navigate` → `localStorage.setItem` 注入种子 → `Page.reload` → 对 DOM 断言）。截图用 `Page.captureScreenshot`。
+- **无头浏览器校验**：E2E 测试是临时的 `.cjs` 脚本（**在系统临时目录 `%TEMP%`，不在仓库内**）。`msedge.exe --headless=new` 启 Edge → CDP WebSocket → `Runtime.evaluate` 跑断言。脚本路径/形态/坑见 `~/.claude/projects/.../memory/quest-board-e2e.md`（已记下来的话）。
 
 单个文件的语法校验：
 ```bash
 node --check js/app.js
 node --check js/store.js
+node --check js/achievements.js
 ```
 
 ## 架构
 
-`index.html` 中三个普通 `<script>` 标签按严格顺序加载：`store.js` → `achievements.js` → `app.js`。**加载顺序很关键** —— 后加载的文件依赖前者的全局对象。**不使用 ES Module**，因为 `file://` 下模块的 CORS 会被拦截；全部采用 IIFE + `window.*` 命名空间（`window.Store`、`window.Badges`）。
+`index.html` 中三个普通 `<script>` 标签按严格顺序加载：`store.js` → `achievements.js` → `app.js`。**加载顺序很关键** —— 后加载的文件依赖前者的全局对象。**不使用 ES Module**，因为 `file://` 下模块的 CORS 会被拦截；全部采用 IIFE + `window.*` 命名空间（`window.Store`、`window.Badges`、`App` IIFE 无导出）。
 
-- **`js/store.js`**（`window.Store`）—— 数据层，最先加载，无依赖。持有 `TASK_TYPES`/`TASK_TYPE_KEYS` 配置、单一 `localStorage` 键 `questBoard.state.v1`、版本化迁移（`MIGRATIONS`）、`loadState`/`saveState`、`normalizeTask`/`normalize` 兜底清洗、`genId`、`escapeHtml`、`validTimeStr`（时间字符串兜底）。所有 `localStorage` 访问都包在 try/catch 中；失败时降级为内存态 + 页面顶部警告条，不崩溃。
-- **`js/achievements.js`**（`window.Badges`）—— 8 枚徽章，纯逻辑，不碰 DOM。`evaluateBadges(state)` 只返回「本次新解锁」的徽章（已解锁的会被过滤掉）。`oneshot` 是唯一的**触发式**徽章（在 `applyProgress` 内置位），其余为重算式。
-- **`js/app.js`**（`App` IIFE）—— 控制器：持有 `state`、缓存 DOM、渲染、绑定事件。
+- **`js/store.js`**（`window.Store`）—— 数据层，最先加载，无依赖。持有 `TASK_TYPES`/`TASK_TYPE_KEYS` 配置、单一 `localStorage` 键 `questBoard.state.v1`、版本化迁移（`MIGRATIONS`，当前 v1→v2 新增 `important` / `alertMinutes`）、`loadState`/`saveState`、`normalizeTask`/`normalize` 兜底清洗、`genId`、`escapeHtml`、`validTimeStr`（时间字符串兜底）。所有 `localStorage` 访问都包在 try/catch 中；失败时降级为内存态 + 页面顶部警告条，不崩溃。
+- **`js/achievements.js`**（`window.Badges`）—— 8 枚徽章，纯逻辑，不碰 DOM。`evaluateBadges(state)` 只返回「本次新解锁」的徽章。`oneshot` 是唯一的**触发式**徽章（在 `applyProgress` 内置位），其余为重算式。
+- **`js/app.js`**（`App` IIFE）—— 控制器：持有 `state`、缓存 DOM、渲染、绑定事件。包含 `isUrgent(t)` / `sortTasksByType(tasks)` / `checkUrgent()`，每 30 秒检查一次紧急状态翻转。
+- **`css/style.css`** —— 单一文件，按组件分区（顶栏 / 卡片 / 按钮 / 进度条 / 模态框 / 成就 / Toast / 完成特效等）。`.task-card.urgent`（红边+脉冲）和 `.star-mark`（⭐）样式已就位。
 
 ### 核心控制流模式（必须保持）
 
@@ -46,21 +48,27 @@ node --check js/store.js
 
 ### 任务模型与分组
 
-`TASK_TYPES` 只剩 `main`/`side`（旧的 `destination` 类型已移除；旧的 destination 类型任务在 `normalizeTask` 中惰性迁移为 `main`）。`destination` 现在是每个任务上的**可选自由文本字段**，以楷体（KaiTi）显示在标题右侧，上限 60 字符。进行中任务按类型分组（按 `TASK_TYPE_KEYS` 顺序）、组内按 `order` 排序渲染（紧急任务组内置顶优先）；归档区平铺渲染，按 `completedAt` 倒序。
+`TASK_TYPES` 只剩 `main`/`side`。`destination` 是每个任务上的**可选自由文本字段**，以楷体（KaiTi）显示在标题右侧，上限 60 字符。`important: bool` + `alertMinutes: number|null`（见下节）。进行中任务按类型分组（按 `TASK_TYPE_KEYS` 顺序）、组内按 `sortTasksByType` 排序渲染；归档区平铺渲染，按 `completedAt` 倒序。
 
 ### 时间字段（startTime / endTime）
 
-每个任务有可选的 `startTime` 和 `endTime`，存为 `datetime-local` 字符串（如 `2026-08-28T14:00`），未填为 `null`。`normalizeTask` 用 `validTimeStr` 兜底清洗，老存档自动补 `null`。卡片上用 `timeRowHTML()` 渲染时间行：同天压缩 `08-28 14:00 → 18:00`、跨天两边带日期、只开始显示 `… 起`、只结束显示 `截止 …`、都没填则不显示该行。
+可选，存为 `datetime-local` 字符串（如 `2026-08-28T14:00`），未填为 `null`。`normalizeTask` 用 `validTimeStr` 兜底。卡片上用 `timeRowHTML()` 渲染时间行：同天压缩 `08-28 14:00 → 18:00`、跨天两边带日期、只开始显示 `… 起`、只结束显示 `截止 …`、都没填则不显示该行。
 
 ### 重要任务与紧急提醒（important / alertMinutes）
 
-每个任务有 `important: bool` 和 `alertMinutes: number|null`。当 `important && endTime && status === 'active' && now ≥ endTime − alertMinutes×60000` 时，任务进入**紧急**状态：
+每个任务有 `important: bool` 和 `alertMinutes: number|null`。当 `important && endTime && status === 'active' && now ≥ endTime − alertMinutes×60000` 时，任务进入**紧急**状态（`isUrgent(t)`）：
 
-- **视觉**：卡片加 `urgent` 类（红色边框 + 脉冲动画），卡片头 ⭐ 标记（重要才显示）
-- **排序**：`sortTasksByType` 将紧急任务按剩余时间升序排到同组最前，普通任务按 `order` 排后
-- **定时检测**：`init` 里 `setInterval` 每 30 秒重检，有变化才 `render()`；完成/恢复/编辑即时重算
-- **手动排序覆盖**：紧急期间上移/下移被自动置顶覆盖，脱离紧急后恢复原序
-- **表单校验**：开启重要任务时必须填结束时间，否则红框拦截不保存
+- **视觉**：卡片加 `.urgent` 类（红色边框 + 脉冲动画 + 红色左边框），卡片头 ⭐ 标记（重要才显示，紧急不冲突）
+- **排序**：`sortTasksByType` 将紧急任务按 `endTime` 升序排到同组最前，普通任务按 `order` 排后
+- **定时检测**：`init` 里 `setInterval(checkUrgent, 30000)`，有状态翻转才 `render()`；完成/编辑/创建/重置等变更函数路径都走 render 立即重算
+- **手动排序覆盖**：紧急期间上移/下移按钮被模板隐藏，脱离紧急后恢复
+- **表单校验**（`handleFormSubmit`）：勾选重要 + endTime 空 → 拦截（Toast + 红框 + 焦点）；勾选 + endTime ≤ 现在 → 拦截；alertMinutes < 1 → 拦截
+
+紧急状态受 `urgentState` Map（key=task.id）跟踪，每 30s 一次 diff，**仅在状态翻转时 render**（避免每秒 setInterval 触发的空 render）。
+
+### 版本化迁移
+
+`MIGRATIONS[1]` 初始，`MIGRATIONS[2]` 注入 `important: false` / `alertMinutes: null` 兜底旧 v1 数据。**新增字段时只做"v-1 → v" 一次迁移，不要直接 mutate 旧字段类型**。`loadState` 从最小 version 起按序跑迁移，再过 `normalize`。
 
 ## 与用户的工作约定
 
@@ -74,3 +82,5 @@ node --check js/store.js
 - 任务卡片的快捷进度按钮恰好三个：`+1`、`完成`、`自定义…`（`+5`/`+10`/`+25%`/`到顶`/`−1` 已按用户要求移除）。
 - 时间字段用 `datetime-local` 类型；`validTimeStr` 兜底非法值；`timeRowHTML` 负责卡片显示逻辑。
 - 重要任务强制必填结束时间；紧急状态由 `isUrgent()` 判定；排序用 `sortTasksByType`。
+- 重要任务卡片头 ⭐ 标记 + 紧急时 `.urgent` 类（红边+脉冲）—— 视觉已在 css/style.css 就位，**不要重复实现**。
+- 紧急态隐式通过模板内 `urgent ? '' : '<button>...'` 控制上/下移按钮的渲染，无需 JS 主动隐藏。
